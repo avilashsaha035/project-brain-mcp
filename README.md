@@ -1,8 +1,8 @@
-# Project Brain MCP
+# 🧠 Project Brain MCP
 
 An MCP server that reads any codebase and explains it using AI. Point it at any local project folder and ask questions in plain language.
 
-## Tools
+## 🔧 Tools
 
 | Tool | What it does |
 |---|---|
@@ -11,7 +11,7 @@ An MCP server that reads any codebase and explains it using AI. Point it at any 
 | `explain_auth_flow` | Reads auth-related files and explains login, tokens, and permissions |
 | `ask_codebase` | Answer any question grounded in the actual code |
 
-## Setup
+## 🛠️ Setup
 
 ### 1. Install dependencies
 
@@ -52,7 +52,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 
 Restart Claude Desktop. The 4 tools will appear automatically.
 
-## Example prompts
+## 📝 Example prompts
 
 ```
 Scan the structure of /Users/me/projects/my-api
@@ -64,7 +64,7 @@ Explain the auth flow in /Users/me/projects/my-api
 How does payment processing work in /Users/me/projects/my-shop?
 ```
 
-## Development
+## 🖥️ Development
 
 ```bash
 npm run dev   # watch mode (recompiles on save)
