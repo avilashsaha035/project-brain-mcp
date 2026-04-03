@@ -12,6 +12,8 @@
         "start": "node build/index.js",
         "clean": "rm -rf build"
     },
+    "author": "Avilash Saha[sahaavilash5055@gmail.com]",
+    "license": "MIT",
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.12.0",
         "@anthropic-ai/sdk": "^0.52.0",
