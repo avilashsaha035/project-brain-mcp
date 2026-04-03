@@ -7,7 +7,7 @@
         "project-brain-mcp": "./build/index.js"
     },
     "scripts": {
-        "build": "tsc && chmod 755 build/index.js",
+        "build": "tsc",
         "dev": "tsc --watch",
         "start": "node build/index.js",
         "clean": "rm -rf build"
