@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { scanRepo, readFileSafe } from "../utils/fileScanner.js";
 import { askClaude } from "../utils/aiHelper.js";
+import { isGitHubUrl, scanGitHubRepo } from "../utils/githubApi.js";
 import path from "path";
 import fs from "fs";
 
@@ -11,31 +12,46 @@ export function registerScanStructure(server: McpServer) {
         {
             title: "Scan Repository Structure",
             description:
-                "Scans a local project folder and returns the full file tree plus an AI explanation of what kind of project this is, its tech stack, and how it's organized.",
+                "Scans a project and explains the tech stack and architecture. Accepts a local folder path OR a GitHub URL (e.g. https://github.com/user/repo) — no cloning needed.",
             inputSchema: {
                 repo_path: z
                     .string()
-                    .describe("Absolute or relative path to the project folder"),
+                    .describe("Local folder path OR a GitHub repo URL (https://github.com/user/repo)"),
             },
         },
         async ({ repo_path }: { repo_path: string }) => {
             try {
-                const repo = scanRepo(repo_path);
+                let treeText = "";
+                let codeContext = "";
+                let totalFiles = 0;
 
-                // Read a few key config files to give Claude more context
-                const contextFiles: string[] = [];
-                const importantFiles = [
-                    "package.json", "requirements.txt", "go.mod", "Cargo.toml",
-                    "pyproject.toml", "Gemfile", "pom.xml", "build.gradle",
-                    "README.md", "docker-compose.yml", "Dockerfile",
-                ];
+                if (isGitHubUrl(repo_path)) {
+                    // ── GitHub path: fetch directly via API ──
+                    const ghRepo = await scanGitHubRepo(repo_path, 20);
+                    treeText = ghRepo.tree;
+                    totalFiles = ghRepo.totalFiles;
+                    codeContext = ghRepo.files
+                        .map((f) => `--- ${f.path} ---\n${f.content}`)
+                        .join("\n\n");
+                } else {
+                    // ── Local path ──
+                    const repo = scanRepo(repo_path);
+                    treeText = repo.tree;
+                    totalFiles = repo.totalFiles;
 
-                for (const fileName of importantFiles) {
-                    const filePath = path.join(repo.rootPath, fileName);
-                    if (fs.existsSync(filePath)) {
-                        const content = readFileSafe(filePath, 10_000);
-                        contextFiles.push(`--- ${fileName} ---\n${content}`);
+                    const importantFiles = [
+                        "package.json", "requirements.txt", "go.mod", "Cargo.toml",
+                        "pyproject.toml", "Gemfile", "pom.xml", "build.gradle",
+                        "README.md", "docker-compose.yml", "Dockerfile",
+                    ];
+                    const parts: string[] = [];
+                    for (const fileName of importantFiles) {
+                        const filePath = path.join(repo.rootPath, fileName);
+                        if (fs.existsSync(filePath)) {
+                            parts.push(`--- ${fileName} ---\n${readFileSafe(filePath, 10_000)}`);
+                        }
                     }
+                    codeContext = parts.join("\n\n");
                 }
 
                 const systemPrompt = `You are Project Brain, an expert software architect.
@@ -50,12 +66,12 @@ export function registerScanStructure(server: McpServer) {
                 5. Any notable patterns used (MVC, microservices, monorepo, etc.)
 
                 FILE TREE:
-                ${repo.tree}
+                ${treeText}
 
-                KEY CONFIG FILES:
-                ${contextFiles.join("\n\n")}
+                KEY FILES CONTENT:
+                ${codeContext}
 
-                Total source files found: ${repo.totalFiles}`;
+                Total source files found: ${totalFiles}`;
 
                 const explanation = await askClaude(systemPrompt, userMessage);
 
@@ -63,7 +79,7 @@ export function registerScanStructure(server: McpServer) {
                     content: [
                         {
                             type: "text" as const,
-                            text: `## Project Structure\n\n\`\`\`\n${repo.tree}\`\`\`\n\n## AI Analysis\n\n${explanation}`,
+                            text: `## Project Structure\n\n\`\`\`\n${treeText}\`\`\`\n\n## AI Analysis\n\n${explanation}`,
                         },
                     ],
                 };

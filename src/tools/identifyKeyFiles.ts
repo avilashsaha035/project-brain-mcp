@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { scanRepo, readFileSafe } from "../utils/fileScanner.js";
+import { scanRepo } from "../utils/fileScanner.js";
 import { askClaude } from "../utils/aiHelper.js";
+import { isGitHubUrl, scanGitHubRepo } from "../utils/githubApi.js";
 
 export function registerIdentifyKeyFiles(server: McpServer) {
     server.registerTool(
@@ -9,35 +10,39 @@ export function registerIdentifyKeyFiles(server: McpServer) {
         {
             title: "Identify Key Files",
             description:
-                "Scans the repo and identifies the most important files a developer must understand — entry points, config files, core modules, and business logic files. Returns each file with a brief explanation of its role.",
+                "Identifies the most important files a developer must read first. Accepts a local folder path OR a GitHub URL (e.g. https://github.com/user/repo) — no cloning needed.",
             inputSchema: {
                 repo_path: z
                     .string()
-                    .describe("Absolute or relative path to the project folder"),
+                    .describe("Local folder path OR a GitHub repo URL (https://github.com/user/repo)"),
                 focus: z
                     .string()
                     .optional()
-                    .describe(
-                        "Optional: Focus area e.g. 'backend API', 'database models', 'frontend components'"
-                    ),
+                    .describe("Optional focus area e.g. 'backend API', 'database models'"),
             },
         },
         async ({ repo_path, focus }: { repo_path: string; focus?: string }) => {
             try {
-                const repo = scanRepo(repo_path);
+                let fileList = "";
 
-                // Provide file list with sizes to Claude so it can reason about importance
-                const fileList = repo.files
-                    .map((f) => `${f.relativePath} (${Math.round(f.sizeBytes / 1024)}KB)`)
-                    .join("\n");
+                if (isGitHubUrl(repo_path)) {
+                    const ghRepo = await scanGitHubRepo(repo_path, 20);
+                    fileList = ghRepo.files
+                        .map((f) => `${f.path} (${Math.round(f.size / 1024)}KB)`)
+                        .join("\n");
+                } else {
+                    const repo = scanRepo(repo_path);
+                    fileList = repo.files
+                        .map((f) => `${f.relativePath} (${Math.round(f.sizeBytes / 1024)}KB)`)
+                        .join("\n");
+                }
 
                 const systemPrompt = `You are Project Brain, an expert software architect.
-                Your job is to help new developers understand codebases quickly.
-                When identifying key files, focus on what someone MUST read to understand the project.
-                Format your response as a numbered list with file path, role, and 1-2 sentence explanation.`;
+                Help new developers understand codebases quickly.
+                Format as a numbered list with file path, role, and 1-2 sentence explanation.`;
 
                 const focusClause = focus
-                    ? `The developer wants to focus on: "${focus}". Prioritize files relevant to that area.`
+                    ? `The developer wants to focus on: "${focus}". Prioritize relevant files.`
                     : "Cover all major areas: entry points, routing, models, config, and core logic.";
 
                 const userMessage = `Here is a complete list of source files in this project:
@@ -47,12 +52,12 @@ export function registerIdentifyKeyFiles(server: McpServer) {
                 ${focusClause}
 
                 Identify the TOP 10-15 most important files a new developer should read first.
-                For each file, provide:
+                For each file provide:
                 - The file path
                 - Its role (1 sentence)
-                - Why it's important to read (1 sentence)
+                - Why it's important (1 sentence)
 
-                Then suggest a reading order: which files to read first, second, etc.`;
+                Then suggest a reading order.`;
 
                 const analysis = await askClaude(systemPrompt, userMessage);
 

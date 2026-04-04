@@ -2,28 +2,22 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { scanRepo, readFileSafe } from "../utils/fileScanner.js";
 import { askClaude } from "../utils/aiHelper.js";
+import { isGitHubUrl, scanGitHubRepo } from "../utils/githubApi.js";
 
-// Score a file's relevance to a question based on keyword matching
-function scoreFileRelevance(filePath: string, question: string): number {
+function scoreRelevance(filePath: string, question: string): number {
     const lowerPath = filePath.toLowerCase();
     const words = question.toLowerCase().split(/\s+/);
     let score = 0;
-
     for (const word of words) {
-        if (word.length > 3 && lowerPath.includes(word)) {
-            score += 2;
-        }
+        if (word.length > 3 && lowerPath.includes(word)) score += 2;
     }
-
-    // Boost important file types
     if (lowerPath.includes("index")) score += 1;
     if (lowerPath.includes("main")) score += 1;
     if (lowerPath.includes("app")) score += 1;
-    if (lowerPath.includes("router") || lowerPath.includes("route")) score += 1;
+    if (lowerPath.includes("route")) score += 1;
     if (lowerPath.includes("controller")) score += 1;
     if (lowerPath.includes("service")) score += 1;
     if (lowerPath.includes("model")) score += 1;
-
     return score;
 }
 
@@ -33,16 +27,14 @@ export function registerAskCodebase(server: McpServer) {
         {
             title: "Ask About Codebase",
             description:
-                "Ask any question about a codebase and get an answer grounded in the actual code. For example: 'How does the payment processing work?', 'Where is the database schema defined?', 'How are API routes organized?', 'What happens when a user submits a form?'",
+                "Ask any question about a codebase and get an answer grounded in the actual code. Accepts a local folder path OR a GitHub URL (e.g. https://github.com/user/repo) — no cloning needed.",
             inputSchema: {
                 repo_path: z
                     .string()
-                    .describe("Absolute or relative path to the project folder"),
+                    .describe("Local folder path OR a GitHub repo URL (https://github.com/user/repo)"),
                 question: z
                     .string()
-                    .describe(
-                        "Your question about the codebase — be as specific or general as you like"
-                    ),
+                    .describe("Your question about the codebase"),
                 max_files: z
                     .number()
                     .optional()
@@ -52,55 +44,50 @@ export function registerAskCodebase(server: McpServer) {
         },
         async ({ repo_path, question, max_files = 12 }: { repo_path: string; question: string; max_files?: number }) => {
             try {
-                const repo = scanRepo(repo_path);
+                let allFilePaths: string[] = [];
+                let codeContext = "";
 
-                // Score and rank all files by relevance to the question
-                const scored = repo.files
-                    .map((f) => ({
-                        ...f,
-                        score: scoreFileRelevance(f.relativePath, question),
-                    }))
-                    .sort((a, b) => b.score - a.score);
+                if (isGitHubUrl(repo_path)) {
+                    // Fetch more files so we can score and pick the most relevant
+                    const ghRepo = await scanGitHubRepo(repo_path, 40);
 
-                // Take top N most relevant files
-                const topFiles = scored.slice(0, max_files);
+                    // Score by relevance to question
+                    const scored = ghRepo.files
+                        .map((f) => ({ ...f, score: scoreRelevance(f.path, question) }))
+                        .sort((a, b) => b.score - a.score);
 
-                // Build code context
-                const codeContext = topFiles
-                    .map((f) => {
-                        const content = readFileSafe(f.absolutePath, 8_000);
-                        return `=== ${f.relativePath} ===\n${content}`;
-                    })
-                    .join("\n\n");
+                    const topFiles = scored.slice(0, max_files);
+                    allFilePaths = ghRepo.files.map((f) => f.path);
+                    codeContext = topFiles
+                        .map((f) => `=== ${f.path} ===\n${f.content}`)
+                        .join("\n\n");
+                } else {
+                    const repo = scanRepo(repo_path);
+                    const scored = repo.files
+                        .map((f) => ({ ...f, score: scoreRelevance(f.relativePath, question) }))
+                        .sort((a, b) => b.score - a.score);
 
-                // Also provide the file tree so Claude has the full picture
-                const fileList = repo.files
-                    .map((f) => f.relativePath)
-                    .join("\n");
+                    const topFiles = scored.slice(0, max_files);
+                    allFilePaths = repo.files.map((f) => f.relativePath);
+                    codeContext = topFiles
+                        .map((f) => `=== ${f.relativePath} ===\n${readFileSafe(f.absolutePath, 8_000)}`)
+                        .join("\n\n");
+                }
 
-                const systemPrompt = `You are Project Brain, an expert software engineer who deeply understands codebases.
-                You answer questions about code clearly and accurately, always grounding your answer in the actual code provided.
-                When referencing specific code, quote the relevant lines.
-                If the answer requires looking at files not in the provided context, say so explicitly.
-                Use markdown formatting.`;
+                const systemPrompt = `You are Project Brain, an expert software engineer.
+                Answer questions about code accurately, grounding answers in the actual code provided.
+                Quote relevant lines when helpful. Use markdown formatting.`;
 
                 const userMessage = `Project: ${repo_path}
                 Question: ${question}
 
-                I've selected the ${topFiles.length} most relevant files for your question.
+                ALL FILES:
+                ${allFilePaths.join("\n")}
 
-                FILES READ:
-                ${topFiles.map((f) => `- ${f.relativePath} (relevance score: ${f.score})`).join("\n")}
-
-                ALL FILES IN PROJECT (for reference):
-                ${fileList}
-
-                CODE CONTEXT:
+                CODE CONTEXT (most relevant files):
                 ${codeContext}
 
-                Please answer the question: "${question}"
-
-                Ground your answer in the actual code above. Quote specific files and line patterns when helpful.`;
+                Answer: "${question}"`;
 
                 const answer = await askClaude(systemPrompt, userMessage);
 
@@ -108,7 +95,7 @@ export function registerAskCodebase(server: McpServer) {
                     content: [
                         {
                             type: "text" as const,
-                            text: `## Q: ${question}\n\n${answer}\n\n---\n*Files analyzed: ${topFiles.map((f) => `\`${f.relativePath}\``).join(", ")}*`,
+                            text: `## Q: ${question}\n\n${answer}`,
                         },
                     ],
                 };
