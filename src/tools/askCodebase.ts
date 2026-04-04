@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { scanRepo, readFileSafe } from "../utils/fileScanner.js";
-import { askClaude } from "../utils/aiHelper.js";
+import { askAgent } from "../utils/aiHelper.js";
 import { isGitHubUrl, scanGitHubRepo } from "../utils/githubApi.js";
 
 function scoreRelevance(filePath: string, question: string): number {
@@ -89,7 +89,7 @@ export function registerAskCodebase(server: McpServer) {
 
                 Answer: "${question}"`;
 
-                const answer = await askClaude(systemPrompt, userMessage);
+                const answer = await askAgent(systemPrompt, userMessage);
 
                 return {
                     content: [

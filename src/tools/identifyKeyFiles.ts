@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { scanRepo } from "../utils/fileScanner.js";
-import { askClaude } from "../utils/aiHelper.js";
+import { askAgent } from "../utils/aiHelper.js";
 import { isGitHubUrl, scanGitHubRepo } from "../utils/githubApi.js";
 
 export function registerIdentifyKeyFiles(server: McpServer) {
@@ -59,7 +59,7 @@ export function registerIdentifyKeyFiles(server: McpServer) {
 
                 Then suggest a reading order.`;
 
-                const analysis = await askClaude(systemPrompt, userMessage);
+                const analysis = await askAgent(systemPrompt, userMessage);
 
                 return {
                     content: [
