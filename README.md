@@ -1,6 +1,6 @@
 # 🧠 Project Brain MCP
 
-An MCP server that reads any codebase and explains it using AI. Point it at any local project folder and ask questions in plain language.
+An MCP server that reads any codebase and explains it using AI. Point it at any `github repo url` / `local project folder` and ask questions in plain language.
 
 ## 🔧 Tools
 
@@ -43,7 +43,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
       "command": "node",
       "args": ["/absolute/path/to/project-brain-mcp/build/index.js"],
       "env": {
-        "ANTHROPIC_API_KEY": "sk-ant-your-key-here"
+        "GEMINI_API_KEY": "sk-ant-your-key-here"
       }
     }
   }
@@ -55,9 +55,9 @@ Restart Claude Desktop. The 4 tools will appear automatically.
 ## 📝 Example prompts
 
 ```
-Scan the structure of /Users/me/projects/my-api
+Scan the structure of https://github.com/username/repo-name
 
-What are the key files I should read in /Users/me/projects/my-app?
+What are the key files I should read in this repo?
 
 Explain the auth flow in /Users/me/projects/my-api
 
